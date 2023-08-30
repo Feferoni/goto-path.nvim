@@ -1,7 +1,5 @@
 local builtin = require('telescope.builtin')
 
-local replacement_table = nil
-
 local is_whitespace = function(line, pos)
     local char_at_cursor = line:sub(pos, pos)
     if char_at_cursor:match('%s') then
@@ -10,6 +8,46 @@ local is_whitespace = function(line, pos)
     return false
 end
 
+local try_open_file = function(file_path, line_number, column_number)
+    local file_exists = vim.fn.filereadable(file_path) == 1
+    if file_exists then
+        vim.api.nvim_command("edit " .. vim.fn.fnameescape(file_path))
+        vim.api.nvim_win_set_cursor(0, { line_number, column_number })
+        return true
+    end
+    return false
+end
+
+local parse_numbers = function(file_string)
+    local line_number, column_number = file_string:match(":(%d+):(%d+)$")
+    file_string = file_string:gsub(":%d+:%d+$", "")
+
+    if line_number == nil and column_number == nil then
+        line_number, column_number = file_string:match(":(%d+):(%d+):$")
+        file_string = file_string:gsub(":%d+:%d+:$", "")
+    end
+
+    if line_number == nil then
+        line_number = file_string:match(":(%d+)$")
+        file_string = file_string:gsub(":%d+$", "")
+    end
+
+    if line_number == nil then
+        line_number = 1
+    end
+
+    if column_number == nil then
+        column_number = 0
+    end
+    line_number = tonumber(line_number)
+    column_number = tonumber(column_number)
+
+    file_string = file_string:gsub(":", "")
+
+    return file_string, line_number, column_number
+end
+
+local replacement_table = nil
 local M = {}
 
 M.setup = function(opts)
@@ -37,36 +75,29 @@ M.go = function()
 
     current_pos = current_pos + 1
     local start_pos, end_pos = line:find('[^%s]*', current_pos)
-    local file_string = line:sub(start_pos, end_pos)
+    local starting_string = line:sub(start_pos, end_pos)
 
-
+    local file_string, line_number, column_number = parse_numbers(starting_string)
 
     if replacement_table then
         for _, replacement in ipairs(replacement_table) do
             file_string = file_string:gsub(replacement[1], replacement[2])
+            file_string = file_string:gsub("//+", "/") -- remove duplicate //
         end
     end
 
-    local file_exists = vim.fn.filereadable(file_string) == 1
-    if not file_exists then
-        local root            = vim.fn.expand("#1:p")
-        local tmp_file        = root .. file_string
-        local tmp_file_exists = vim.fn.filereadable(tmp_file) == 1
-        if tmp_file_exists then
-            file_string = tmp_file
-            file_exists = true
-        end
+    if try_open_file(file_string, line_number, column_number) then
+        return
     end
 
-
-    if file_exists then
-        vim.api.nvim_command("edit " .. vim.fn.fnameescape(file_string))
+    local root_and_file_string = vim.fn.expand("#1:p") .. file_string
+    if try_open_file(root_and_file_string, line_number, column_number) then
         return
     end
 
     file_string = file_string:gsub("%.%.%/", "") -- remove all instances of ../
-    file_string = file_string:gsub("%.%/", "")   -- remove all instances of ./
-    file_string = file_string:gsub("//+", "/")   -- remove duplicate //
+    file_string = file_string:gsub("%.%/", "") -- remove all instances of ./
+    file_string = file_string:gsub("//+", "/") -- remove duplicate //
     file_string = string.match(file_string, "[^/]+$")
 
     if builtin then
@@ -77,3 +108,4 @@ M.go = function()
 end
 
 return M
+
