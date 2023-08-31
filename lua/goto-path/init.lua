@@ -110,8 +110,8 @@ M.go = function(opts)
     file_string = string.match(file_string, "[^/]+$")
 
     opts.search_file = file_string
-    if opts.telescope_pretty then
-        opts.telescope_pretty.project_files(opts, builtin.find_files)
+    if opts.telescope_prettier then
+        opts.telescope_prettier(opts, builtin.find_files)
     elseif builtin then
         builtin.find_files(opts)
     end
