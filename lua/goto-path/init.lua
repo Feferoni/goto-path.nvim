@@ -1,5 +1,12 @@
 local builtin = require('telescope.builtin')
 
+-- init.lua
+-- init.lua:2
+-- init.lua:2:2
+-- init.lua:2:2:
+-- <init.lua>
+-- "init.lua"
+
 local is_whitespace = function(line, pos)
     local char_at_cursor = line:sub(pos, pos)
     if char_at_cursor:match('%s') then
@@ -60,7 +67,8 @@ M.setup = function(opts)
 end
 
 
-M.go = function()
+M.go = function(opts)
+    opts = opts or {}
     local line = vim.api.nvim_get_current_line()
     local cursor_pos = vim.fn.col('.')
 
@@ -97,16 +105,16 @@ M.go = function()
     end
 
     file_string = file_string:gsub("%.%.%/", "") -- remove all instances of ../
-    file_string = file_string:gsub("%.%/", "") -- remove all instances of ./
-    file_string = file_string:gsub("//+", "/") -- remove duplicate //
+    file_string = file_string:gsub("%.%/", "")   -- remove all instances of ./
+    file_string = file_string:gsub("//+", "/")   -- remove duplicate //
     file_string = string.match(file_string, "[^/]+$")
 
-    if builtin then
-        local opts = {}
-        opts.search_file = file_string
+    opts.search_file = file_string
+    if opts.telescope_pretty then
+        opts.telescope_pretty.project_files(opts, builtin.find_files)
+    elseif builtin then
         builtin.find_files(opts)
     end
 end
 
 return M
-
