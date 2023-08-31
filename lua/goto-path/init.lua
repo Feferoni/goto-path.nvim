@@ -18,7 +18,8 @@ local try_open_file = function(file_path, line_number, column_number)
     return false
 end
 
-local parse_numbers = function(file_string)
+local parse_numbers_and_clean_end = function(file_string)
+    local file_string = file_string:gsub('[<>"]', '')
     local line_number, column_number = file_string:match(":(%d+):(%d+)$")
     file_string = file_string:gsub(":%d+:%d+$", "")
 
@@ -77,7 +78,7 @@ M.go = function()
     local start_pos, end_pos = line:find('[^%s]*', current_pos)
     local starting_string = line:sub(start_pos, end_pos)
 
-    local file_string, line_number, column_number = parse_numbers(starting_string)
+    local file_string, line_number, column_number = parse_numbers_and_clean_end(starting_string)
 
     if replacement_table then
         for _, replacement in ipairs(replacement_table) do
