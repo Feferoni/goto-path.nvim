@@ -15,18 +15,38 @@ local is_whitespace = function(line, pos)
     return false
 end
 
-local try_open_file = function(file_path, line_number, column_number)
+local telescope_search = function (opts)
+    opts = opts or {}
+    if opts.telescope_prettier then
+        opts.telescope_prettier(opts, builtin.find_files)
+    elseif builtin then
+        builtin.find_files(opts)
+    end
+end
+
+
+local try_open_file = function(opts, file_path, line_number, column_number)
     local file_exists = vim.fn.filereadable(file_path) == 1
     if file_exists then
         vim.api.nvim_command("edit " .. vim.fn.fnameescape(file_path))
         vim.api.nvim_win_set_cursor(0, { line_number, column_number })
+        print("Found file: " .. file_path)
         return true
     end
+
+    local directory_exists = vim.fn.isdirectory(file_path) == 1
+    if directory_exists then
+        opts.search_dirs = { file_path }
+        telescope_search(opts)
+        print("Found directory: " .. file_path)
+        return true
+    end
+
     return false
 end
 
 local parse_numbers_and_clean_end = function(file_string)
-    local file_string = file_string:gsub('[<>"]', '')
+    file_string = file_string:gsub('[<>"]', '')
     local line_number, column_number = file_string:match(":(%d+):(%d+)$")
     file_string = file_string:gsub(":%d+:%d+$", "")
 
@@ -69,6 +89,15 @@ end
 
 M.go = function(opts)
     opts = opts or {}
+
+    if not opts.repo_root_variable then
+        opts.repo_root_variable = "REPOROOT"
+    end
+
+    if not opts.root_file then
+        opts.root_file = vim.fn.getenv(opts.repo_root_variable)
+    end
+
     local line = vim.api.nvim_get_current_line()
     local cursor_pos = vim.fn.col('.')
 
@@ -94,13 +123,12 @@ M.go = function(opts)
             file_string = file_string:gsub("//+", "/") -- remove duplicate //
         end
     end
-
-    if try_open_file(file_string, line_number, column_number) then
+    if try_open_file(opts, file_string, line_number, column_number) then
         return
     end
 
-    local root_and_file_string = vim.fn.expand("#1:p") .. file_string
-    if try_open_file(root_and_file_string, line_number, column_number) then
+    local root_and_file_string = opts.root_file .. file_string
+    if try_open_file(opts, root_and_file_string, line_number, column_number) then
         return
     end
 
@@ -110,11 +138,8 @@ M.go = function(opts)
     file_string = string.match(file_string, "[^/]+$")
 
     opts.search_file = file_string
-    if opts.telescope_prettier then
-        opts.telescope_prettier(opts, builtin.find_files)
-    elseif builtin then
-        builtin.find_files(opts)
-    end
+    telescope_search(opts)
+    print("Searching for file: " .. file_string)
 end
 
 return M
