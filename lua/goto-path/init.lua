@@ -90,12 +90,8 @@ end
 M.go = function(opts)
     opts = opts or {}
 
-    if not opts.repo_root_variable then
-        opts.repo_root_variable = "REPOROOT"
-    end
-
     if not opts.root_file then
-        opts.root_file = vim.fn.getenv(opts.repo_root_variable)
+        opts.root_file = vim.fn.getcwd()
     end
 
     local line = vim.api.nvim_get_current_line()
