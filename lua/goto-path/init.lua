@@ -86,14 +86,40 @@ M.setup = function(opts)
     end
 end
 
+local open_file = function (line, opts)
+    opts = opts or {}
+
+    local file_string, line_number, column_number = parse_numbers_and_clean_end(line)
+    if replacement_table then
+        for _, replacement in ipairs(replacement_table) do
+            file_string = file_string:gsub(replacement[1], replacement[2])
+            file_string = file_string:gsub("//+", "/") -- remove duplicate //
+        end
+    end
+    if try_open_file(opts, file_string, line_number, column_number) then
+        return
+    end
+
+
+    if opts.root_file ~= nil then
+        local root_and_file_string = opts.root_file .. file_string
+        if try_open_file(opts, root_and_file_string, line_number, column_number) then
+            return
+        end
+    end
+
+    file_string = file_string:gsub("%.%.%/", "") -- remove all instances of ../
+    file_string = file_string:gsub("%.%/", "")   -- remove all instances of ./
+    file_string = file_string:gsub("//+", "/")   -- remove duplicate //
+    file_string = string.match(file_string, "[^/]+$")
+
+    opts.search_file = file_string
+    telescope_search(opts)
+    print("Searching for file: " .. file_string)
+end
 
 M.go = function(opts)
     opts = opts or {}
-
-    if not opts.root_file then
-        opts.root_file = vim.fn.getcwd()
-    end
-
     local line = vim.api.nvim_get_current_line()
     local cursor_pos = vim.fn.col('.')
 
@@ -110,32 +136,20 @@ M.go = function(opts)
     current_pos = current_pos + 1
     local start_pos, end_pos = line:find('[^%s]*', current_pos)
     local starting_string = line:sub(start_pos, end_pos)
-
-    local file_string, line_number, column_number = parse_numbers_and_clean_end(starting_string)
-
-    if replacement_table then
-        for _, replacement in ipairs(replacement_table) do
-            file_string = file_string:gsub(replacement[1], replacement[2])
-            file_string = file_string:gsub("//+", "/") -- remove duplicate //
-        end
-    end
-    if try_open_file(opts, file_string, line_number, column_number) then
-        return
-    end
-
-    local root_and_file_string = opts.root_file .. file_string
-    if try_open_file(opts, root_and_file_string, line_number, column_number) then
-        return
-    end
-
-    file_string = file_string:gsub("%.%.%/", "") -- remove all instances of ../
-    file_string = file_string:gsub("%.%/", "")   -- remove all instances of ./
-    file_string = file_string:gsub("//+", "/")   -- remove duplicate //
-    file_string = string.match(file_string, "[^/]+$")
-
-    opts.search_file = file_string
-    telescope_search(opts)
-    print("Searching for file: " .. file_string)
+    open_file(starting_string, opts)
 end
+
+
+vim.api.nvim_create_user_command('OpenFile', function (args)
+    if #args.fargs == 1 then
+        local opts = {}
+        opts.follow = true
+        opts.no_ignore = true
+        opts.telescope_prettier = require('feferoni.telescope_prettier').project_files
+        open_file(args.fargs[1], opts)
+    else
+        print("Error: OpenFile command requires exactly one argument.")
+    end
+end, { nargs = 1 })
 
 return M
