@@ -233,7 +233,7 @@ local open_file = function(line, opts)
     opts.entry_maker = opts.entry_maker or make_entry.gen_from_file(opts)
     pickers
         .new(opts, {
-            prompt_title = "Find Files",
+            prompt_title = "Find File: " .. file_string,
             finder = finders.new_oneshot_job(find_command, opts),
             previewer = get_custom_previwer(opts, lnum),
             sorter = conf.file_sorter(opts),
