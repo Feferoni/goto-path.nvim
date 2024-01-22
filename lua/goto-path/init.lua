@@ -1,4 +1,4 @@
-local builtin = require('telescope.builtin')
+local ns_highlight = vim.api.nvim_create_namespace "telescope.highlight"
 
 -- init.lua
 -- init.lua:2
@@ -6,6 +6,110 @@ local builtin = require('telescope.builtin')
 -- init.lua:2:2:
 -- <init.lua>
 -- "init.lua"
+
+local function filenameFirst(_, path)
+    local tail = vim.fs.basename(path)
+    local parent = vim.fs.dirname(path)
+    if parent == "." then return tail end
+    return string.format("%s\t\t%s", tail, parent)
+end
+
+vim.api.nvim_create_autocmd("FileType", {
+    pattern = "TelescopeResults",
+    callback = function(ctx)
+        vim.api.nvim_buf_call(ctx.buf, function()
+            vim.fn.matchadd("TelescopeParent", "\t\t.*$")
+            vim.api.nvim_set_hl(0, "TelescopeParent", { link = "Comment" })
+        end)
+    end,
+})
+
+local getLnum = function(lnum, bufnr)
+    local line_count = vim.api.nvim_buf_line_count(bufnr)
+    if line_count then
+        return math.max(1, math.min(lnum, line_count))
+    end
+
+    return 0
+end
+
+local getCnum = function(lnum, cnum, bufnr)
+    local lines = vim.api.nvim_buf_get_lines(bufnr, lnum - 1, lnum, false)
+    if lines and lines[1] then
+        return math.max(0, math.min(string.len(lines[1]) - 1, cnum))
+    else
+        return 0
+    end
+end
+
+local jump_to_line = function(lnum, bufnr)
+    vim.api.nvim_buf_call(bufnr, function()
+        lnum = getLnum(lnum, bufnr)
+        vim.api.nvim_win_set_cursor(0, { lnum, 0 })
+        vim.cmd("normal! zz")
+        vim.api.nvim_buf_clear_namespace(bufnr, ns_highlight, 0, -1)
+        vim.api.nvim_buf_add_highlight(bufnr, ns_highlight, "TelescopePreviewLine", lnum - 1, 0, -1)
+    end)
+end
+
+local get_custom_previwer = function(opts, lnum)
+    local previewers = require "telescope.previewers"
+    local from_entry = require "telescope.from_entry"
+    local conf = require("telescope.config").values
+    local Path = require "plenary.path"
+
+    return previewers.new_buffer_previewer {
+        title = "Custom preview",
+        dyn_title = function(_, entry)
+            return Path:new(from_entry.path(entry, false, false)):normalize("")
+        end,
+
+        get_buffer_by_name = function(_, entry)
+            return from_entry.path(entry, false)
+        end,
+
+        define_preview = function(self, entry)
+            local has_buftype = entry.bufnr
+                and vim.api.nvim_buf_is_valid(entry.bufnr)
+                and vim.api.nvim_buf_get_option(entry.bufnr, "buftype") ~= ""
+                or false
+            local p
+            if not has_buftype then
+                p = from_entry.path(entry, true)
+                if p == nil or p == "" then
+                    return
+                end
+            end
+
+            if entry.bufnr and (p == "[No Name]" or has_buftype) then
+                jump_to_line(lnum, entry.bufnr)
+            else
+                conf.buffer_previewer_maker(p, self.state.bufnr, {
+                    bufname = self.state.bufname,
+                    winid = self.state.winid,
+                    preview = opts.preview,
+                    callback = function(bufnr)
+                        jump_to_line(lnum, bufnr)
+                    end,
+                    file_encoding = opts.file_encoding,
+                })
+            end
+        end
+    }
+end
+
+local get_attach_mapping = function(lnum, cnum)
+    return function()
+        local actions = require('telescope.actions')
+        actions.select_default:enhance {
+            post = function()
+                vim.api.nvim_win_set_cursor(0, { getLnum(lnum, 0), getCnum(lnum, cnum, 0) })
+                vim.cmd("normal! zz")
+            end,
+        }
+        return true
+    end
+end
 
 local is_whitespace = function(line, pos)
     local char_at_cursor = line:sub(pos, pos)
@@ -15,64 +119,43 @@ local is_whitespace = function(line, pos)
     return false
 end
 
-local telescope_search = function (opts)
-    opts = opts or {}
-    if opts.telescope_prettier then
-        opts.telescope_prettier(opts, builtin.find_files)
-    elseif builtin then
-        builtin.find_files(opts)
-    end
-end
-
-
 local try_open_file = function(opts, file_path, line_number, column_number)
     local file_exists = vim.fn.filereadable(file_path) == 1
     if file_exists then
         vim.api.nvim_command("edit " .. vim.fn.fnameescape(file_path))
         vim.api.nvim_win_set_cursor(0, { line_number, column_number })
-        print("Found file: " .. file_path)
         return true
     end
 
     local directory_exists = vim.fn.isdirectory(file_path) == 1
     if directory_exists then
         opts.search_dirs = { file_path }
-        telescope_search(opts)
-        print("Found directory: " .. file_path)
+        require('telescope.builtin').find_files(opts)
         return true
     end
 
     return false
 end
 
-local parse_numbers_and_clean_end = function(file_string)
-    file_string = file_string:gsub('[<>"]', '')
-    local line_number, column_number = file_string:match(":(%d+):(%d+)$")
-    file_string = file_string:gsub(":%d+:%d+$", "")
+local parse_numbers_and_clean_end = function(file_name)
+    file_name = file_name:gsub('[<>"]', '')
 
-    if line_number == nil and column_number == nil then
-        line_number, column_number = file_string:match(":(%d+):(%d+):$")
-        file_string = file_string:gsub(":%d+:%d+:$", "")
+    local numbers_part, line_number, column_number
+    local first_colon_index = string.find(file_name, ":")
+    if first_colon_index then
+        numbers_part = file_name:sub(first_colon_index + 1)
+        file_name = file_name:sub(1, first_colon_index - 1)
+        line_number, column_number = numbers_part:match("(%d+):?(%d*):?")
     end
 
-    if line_number == nil then
-        line_number = file_string:match(":(%d+)$")
-        file_string = file_string:gsub(":%d+$", "")
-    end
-
-    if line_number == nil then
+    if not line_number then
         line_number = 1
-    end
-
-    if column_number == nil then
         column_number = 0
     end
+
     line_number = tonumber(line_number)
-    column_number = tonumber(column_number)
-
-    file_string = file_string:gsub(":", "")
-
-    return file_string, line_number, column_number
+    column_number = tonumber(column_number) or 0
+    return file_name, line_number, column_number
 end
 
 local replacement_table = nil
@@ -86,24 +169,24 @@ M.setup = function(opts)
     end
 end
 
-local open_file = function (line, opts)
+local open_file = function(line, opts)
     opts = opts or {}
 
-    local file_string, line_number, column_number = parse_numbers_and_clean_end(line)
+    local file_string, lnum, cnum = parse_numbers_and_clean_end(line)
     if replacement_table then
         for _, replacement in ipairs(replacement_table) do
             file_string = file_string:gsub(replacement[1], replacement[2])
             file_string = file_string:gsub("//+", "/") -- remove duplicate //
         end
     end
-    if try_open_file(opts, file_string, line_number, column_number) then
+    if try_open_file(opts, file_string, lnum, cnum) then
         return
     end
 
 
     if opts.root_file ~= nil then
         local root_and_file_string = opts.root_file .. file_string
-        if try_open_file(opts, root_and_file_string, line_number, column_number) then
+        if try_open_file(opts, root_and_file_string, lnum, cnum) then
             return
         end
     end
@@ -113,12 +196,52 @@ local open_file = function (line, opts)
     file_string = file_string:gsub("//+", "/")   -- remove duplicate //
     file_string = string.match(file_string, "[^/]+$")
 
-    opts.search_file = file_string
-    telescope_search(opts)
-    print("Searching for file: " .. file_string)
+    local find_command = (function()
+        if 1 == vim.fn.executable "fd" then
+            return { "fd", "--type", "f", "--color", "never", "--hidden", "--no-ignore", "-L" }
+        elseif 1 == vim.fn.executable "fdfind" then
+            return { "fdfind", "--type", "f", "--color", "never", "--hidden", "--no-ignore", "-L" }
+        elseif 1 == vim.fn.executable "find" and vim.fn.has "win32" == 0 then
+            return { "find", ".", "-type", "f" }
+        end
+    end)()
+
+    local finders = require "telescope.finders"
+    local make_entry = require "telescope.make_entry"
+    local pickers = require "telescope.pickers"
+    local utils = require "telescope.utils"
+    local conf = require("telescope.config").values
+    if not find_command then
+        utils.notify("builtin.find_files", {
+            msg = "You need to install either find, fd, or rg",
+            level = "ERROR",
+        })
+        return
+    end
+    find_command[#find_command + 1] = file_string
+
+    opts.on_complete = {
+        function(picker)
+            if picker.manager.linked_states.size == 1 then
+                local actions = require('telescope.actions')
+                actions.select_default(picker.prompt_bufnr)
+            end
+        end
+    }
+    opts.path_display = filenameFirst
+    opts.attach_mappings = get_attach_mapping(lnum, cnum)
+    opts.entry_maker = opts.entry_maker or make_entry.gen_from_file(opts)
+    pickers
+        .new(opts, {
+            prompt_title = "Find Files",
+            finder = finders.new_oneshot_job(find_command, opts),
+            previewer = get_custom_previwer(opts, lnum),
+            sorter = conf.file_sorter(opts),
+        })
+        :find()
 end
 
-M.go = function(opts)
+M.goto_file = function(opts)
     opts = opts or {}
     local line = vim.api.nvim_get_current_line()
     local cursor_pos = vim.fn.col('.')
@@ -139,13 +262,11 @@ M.go = function(opts)
     open_file(starting_string, opts)
 end
 
-
-vim.api.nvim_create_user_command('OpenFile', function (args)
+vim.api.nvim_create_user_command('OpenFile', function(args)
     if #args.fargs == 1 then
         local opts = {}
         opts.follow = true
         opts.no_ignore = true
-        opts.telescope_prettier = require('feferoni.telescope_prettier').project_files
         open_file(args.fargs[1], opts)
     else
         print("Error: OpenFile command requires exactly one argument.")
