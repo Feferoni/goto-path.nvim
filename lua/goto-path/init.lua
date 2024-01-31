@@ -36,7 +36,7 @@ end
 local getCnum = function(lnum, cnum, bufnr)
     local lines = vim.api.nvim_buf_get_lines(bufnr, lnum - 1, lnum, false)
     if lines and lines[1] then
-        return math.max(0, math.min(string.len(lines[1]) - 1, cnum))
+        return math.max(0, math.min(string.len(lines[1]), cnum) - 1)
     else
         return 0
     end
@@ -119,11 +119,12 @@ local is_whitespace = function(line, pos)
     return false
 end
 
-local try_open_file = function(opts, file_path, line_number, column_number)
+local try_open_file = function(opts, file_path, lnum, cnum)
     local file_exists = vim.fn.filereadable(file_path) == 1
     if file_exists then
         vim.api.nvim_command("edit " .. vim.fn.fnameescape(file_path))
-        vim.api.nvim_win_set_cursor(0, { line_number, column_number })
+        vim.api.nvim_win_set_cursor(0, { lnum, getCnum(lnum, cnum, 0) })
+        vim.cmd("normal! zz")
         return true
     end
 
@@ -140,22 +141,22 @@ end
 local parse_numbers_and_clean_end = function(file_name)
     file_name = file_name:gsub('[<>"]', '')
 
-    local numbers_part, line_number, column_number
+    local numbers_part, lnum, cnum
     local first_colon_index = string.find(file_name, ":")
     if first_colon_index then
         numbers_part = file_name:sub(first_colon_index + 1)
         file_name = file_name:sub(1, first_colon_index - 1)
-        line_number, column_number = numbers_part:match("(%d+):?(%d*):?")
+        lnum, cnum = numbers_part:match("(%d+):?(%d*):?")
     end
 
-    if not line_number then
-        line_number = 1
-        column_number = 0
+    if not lnum then
+        lnum = 1
+        cnum = 0
     end
 
-    line_number = tonumber(line_number)
-    column_number = tonumber(column_number) or 0
-    return file_name, line_number, column_number
+    lnum = tonumber(lnum)
+    cnum = tonumber(cnum) or 0
+    return file_name, lnum, cnum
 end
 
 local replacement_table = nil
