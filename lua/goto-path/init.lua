@@ -123,7 +123,7 @@ local try_open_file = function(opts, file_path, lnum, cnum)
     local file_exists = vim.fn.filereadable(file_path) == 1
     if file_exists then
         vim.api.nvim_command("edit " .. vim.fn.fnameescape(file_path))
-        vim.api.nvim_win_set_cursor(0, { lnum, getCnum(lnum, cnum, 0) })
+        vim.api.nvim_win_set_cursor(0, { getLnum(lnum, 0), getCnum(lnum, cnum, 0) })
         vim.cmd("normal! zz")
         return true
     end
