@@ -6,6 +6,8 @@ local ns_highlight = vim.api.nvim_create_namespace "telescope.highlight"
 -- init.lua:2:2:
 -- <init.lua>
 -- "init.lua"
+-- $(REPO)/lua/goto-path/init.lua:44:3
+-- ${REPO}/lua/goto-path/init.lua:44:3
 
 local function filenameFirst(_, path)
     local tail = vim.fs.basename(path)
@@ -159,31 +161,40 @@ local parse_numbers_and_clean_end = function(file_name)
     return file_name, lnum, cnum
 end
 
-local replacement_table = nil
 local M = {}
 
 M.setup = function(opts)
     opts = opts or {}
+end
 
-    if opts.replacement_table then
-        replacement_table = opts.replacement_table
+local transform_env_vars = function(file_string)
+    local pattern = "%$%b{}"
+    local pattern2 = "%$%(%a[%w_]*%)"
+
+    local function replace(match)
+        local varName = match:sub(3, -2)
+        local envValue = os.getenv(varName)
+        return envValue or ""
     end
+
+    file_string = file_string:gsub(pattern, replace)
+    file_string = file_string:gsub(pattern2, replace)
+    file_string = file_string:gsub("//+", "/") -- remove duplicate //
+
+    print(file_string)
+
+    return file_string
 end
 
 local open_file = function(line, opts)
     opts = opts or {}
 
     local file_string, lnum, cnum = parse_numbers_and_clean_end(line)
-    if replacement_table then
-        for _, replacement in ipairs(replacement_table) do
-            file_string = file_string:gsub(replacement[1], replacement[2])
-            file_string = file_string:gsub("//+", "/") -- remove duplicate //
-        end
-    end
+
+    file_string = transform_env_vars(file_string)
     if try_open_file(opts, file_string, lnum, cnum) then
         return
     end
-
 
     if opts.root_file ~= nil then
         local root_and_file_string = opts.root_file .. file_string
