@@ -8,6 +8,9 @@ local ns_highlight = vim.api.nvim_create_namespace "telescope.highlight"
 -- "init.lua"
 -- $(REPO)/lua/goto-path/init.lua:44:3
 -- ${REPO}/lua/goto-path/init.lua:44:3
+-- asda"init.lua",123
+-- asda[init.lua],123
+-- asda<init.lua>,123
 
 local function filenameFirst(_, path)
     local tail = vim.fs.basename(path)
@@ -140,8 +143,19 @@ local try_open_file = function(opts, file_path, lnum, cnum)
     return false
 end
 
+local extract_text = function(input)
+    local patterns = { '"(.-)"', '<(.-)>', '[(.-)]', '%((.-)%)' }
+    for _, pattern in ipairs(patterns) do
+        local match = string.match(input, pattern)
+        if match then
+            return match
+        end
+    end
+    return input
+end
+
 local parse_numbers_and_clean_end = function(file_name)
-    file_name = file_name:gsub('[<>"]', '')
+    file_name = extract_text(file_name)
 
     local numbers_part, lnum, cnum
     local first_colon_index = string.find(file_name, ":")
