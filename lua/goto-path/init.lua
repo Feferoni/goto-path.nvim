@@ -1,5 +1,3 @@
-local ns_highlight = vim.api.nvim_create_namespace "telescope.highlight"
-
 -- init.lua
 -- init.lua:2
 -- init.lua:2:2
@@ -48,6 +46,7 @@ local getCnum = function(lnum, cnum, bufnr)
 end
 
 local jump_to_line = function(lnum, bufnr)
+    local ns_highlight = vim.api.nvim_create_namespace "telescope.highlight"
     vim.api.nvim_buf_call(bufnr, function()
         lnum = getLnum(lnum, bufnr)
         vim.api.nvim_win_set_cursor(0, { lnum, 0 })
