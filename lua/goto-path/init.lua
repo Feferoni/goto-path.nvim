@@ -143,7 +143,15 @@ local try_open_file = function(opts, file_path, lnum, cnum)
 end
 
 local extract_text = function(input)
-    local patterns = { '"(.-)"', '<(.-)>', '[(.-)]', '%((.-)%)' }
+    if input:sub(1, 1) == "$" then
+        return input
+    end
+    local patterns = {
+        '"(.-)"',
+        '<(.-)>',
+        '[(.-)]',
+        '%((.-)%)'
+    }
     for _, pattern in ipairs(patterns) do
         local match = string.match(input, pattern)
         if match then
@@ -181,20 +189,22 @@ M.setup = function(opts)
 end
 
 local transform_env_vars = function(file_string)
-    local pattern = "%$%b{}"
-    local pattern2 = "%$%(%a[%w_]*%)"
+    local patterns = {
+        "%$%(([%w_]+)%)",
+        "%${([%w_]+)}",
+    }
 
-    local function replace(match)
-        local varName = match:sub(3, -2)
-        local envValue = os.getenv(varName)
-        return envValue or ""
+    local function get_env(var_name)
+        local value = os.getenv(var_name)
+        if not value then
+            return ""
+        end
+        return value
     end
 
-    file_string = file_string:gsub(pattern, replace)
-    file_string = file_string:gsub(pattern2, replace)
-    file_string = file_string:gsub("//+", "/") -- remove duplicate //
-
-    print(file_string)
+    for _, pattern in ipairs(patterns) do
+        file_string = file_string:gsub(pattern, get_env)
+    end
 
     return file_string
 end
@@ -204,6 +214,7 @@ local open_file = function(line, opts)
 
     local file_string, lnum, cnum = parse_numbers_and_clean_end(line)
 
+    P(file_string)
     file_string = transform_env_vars(file_string)
     if try_open_file(opts, file_string, lnum, cnum) then
         return
@@ -284,6 +295,10 @@ M.goto_file = function(opts)
     current_pos = current_pos + 1
     local start_pos, end_pos = line:find('[^%s]*', current_pos)
     local starting_string = line:sub(start_pos, end_pos)
+    if string.len(starting_string) == 0 then
+        print("Empty string")
+        return
+    end
     open_file(starting_string, opts)
 end
 
