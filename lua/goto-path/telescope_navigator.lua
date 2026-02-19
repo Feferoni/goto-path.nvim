@@ -1,4 +1,26 @@
+local utils = require('goto-path.utils')
+
 local M = {}
+
+local current_job_id = nil
+
+local stop_current_job = function()
+    if current_job_id then
+        vim.fn.jobstop(current_job_id)
+        current_job_id = nil
+    end
+end
+
+M.cancel_search = function()
+    if current_job_id then
+        stop_current_job()
+        vim.notify("goto-path: search cancelled", vim.log.levels.INFO)
+    end
+end
+
+vim.api.nvim_create_user_command('CancelSearch', function()
+    M.cancel_search()
+end, {})
 
 vim.api.nvim_create_autocmd("FileType", {
     pattern = "TelescopeResults",
@@ -10,27 +32,10 @@ vim.api.nvim_create_autocmd("FileType", {
     end,
 })
 
-local getLnum = function(lnum, bufnr)
-    local line_count = vim.api.nvim_buf_line_count(bufnr)
-    if line_count then
-        return math.max(1, math.min(lnum, line_count))
-    end
-    return 0
-end
-
-local getCnum = function(lnum, cnum, bufnr)
-    local lines = vim.api.nvim_buf_get_lines(bufnr, lnum - 1, lnum, false)
-    if lines and lines[1] then
-        return math.max(0, math.min(string.len(lines[1]), cnum) - 1)
-    else
-        return 0
-    end
-end
-
 local jump_to_line = function(lnum, bufnr)
     local ns_highlight = vim.api.nvim_create_namespace "telescope.highlight"
     vim.api.nvim_buf_call(bufnr, function()
-        lnum = getLnum(lnum, bufnr)
+        lnum = utils.getLnum(lnum, bufnr)
         vim.api.nvim_win_set_cursor(0, { lnum, 0 })
         vim.cmd("normal! zz")
         vim.api.nvim_buf_clear_namespace(bufnr, ns_highlight, 0, -1)
@@ -89,7 +94,7 @@ local get_attach_mapping = function(lnum, cnum)
         local actions = require('telescope.actions')
         actions.select_default:enhance {
             post = function()
-                vim.api.nvim_win_set_cursor(0, { getLnum(lnum, 0), getCnum(lnum, cnum, 0) })
+                vim.api.nvim_win_set_cursor(0, { utils.getLnum(lnum, 0), utils.getCnum(lnum, cnum, 0) })
                 vim.cmd("normal! zz")
             end,
         }
@@ -110,7 +115,7 @@ local get_find_command = function()
     elseif vim.fn.executable("fdfind") == 1 then
         return { "fdfind", "--type", "f", "--color", "never", "--hidden", "--no-ignore", "-L" }
     elseif vim.fn.executable("find") == 1 and vim.fn.has("win32") == 0 then
-        return { "find", ".", "-type", "f" }
+        return { "find", ".", "-type", "f", "-name" }
     end
     return nil
 end
@@ -119,8 +124,7 @@ M.create_search = function()
     return function(parsed, opts)
         local find_command = get_find_command()
         if not find_command then
-            local utils = require "telescope.utils"
-            utils.notify("builtin.find_files", {
+            require("telescope.utils").notify("builtin.find_files", {
                 msg = "You need to install either find, fd, or rg",
                 level = "ERROR",
             })
@@ -128,32 +132,63 @@ M.create_search = function()
         end
 
         local search_name = parsed.file_name
-        find_command[#find_command + 1] = search_name
+        local cmd = vim.list_extend(vim.deepcopy(find_command), { search_name })
+        local ignore_patterns = require("telescope.config").values.file_ignore_patterns or {}
 
-        local finders = require "telescope.finders"
-        local make_entry = require "telescope.make_entry"
-        local pickers = require "telescope.pickers"
-        local conf = require("telescope.config").values
+        stop_current_job()
+        vim.notify("goto-path: searching for '" .. search_name .. "'...", vim.log.levels.INFO)
 
-        opts.on_complete = {
-            function(picker)
-                if picker.manager.linked_states.size == 1 then
-                    local actions = require('telescope.actions')
-                    actions.select_default(picker.prompt_bufnr)
+        current_job_id = vim.fn.jobstart(cmd, {
+            stdout_buffered = true,
+            on_stdout = function(_, data)
+                current_job_id = nil
+                local results = vim.tbl_filter(function(path)
+                    if path == "" then return false end
+                    for _, pattern in ipairs(ignore_patterns) do
+                        if path:find(pattern) then return false end
+                    end
+                    return true
+                end, data)
+
+                if #results == 0 then
+                    vim.notify("goto-path: no match for '" .. search_name .. "'", vim.log.levels.WARN)
+                    return
                 end
-            end
-        }
-        opts.path_display = filenameFirst
-        opts.attach_mappings = get_attach_mapping(parsed.row, parsed.column)
-        opts.entry_maker = opts.entry_maker or make_entry.gen_from_file(opts)
-        pickers
-            .new(opts, {
-                prompt_title = "Find File: " .. search_name,
-                finder = finders.new_oneshot_job(find_command, opts),
-                previewer = get_custom_previwer(opts, parsed.row),
-                sorter = conf.file_sorter(opts),
-            })
-            :find()
+
+                if #results == 1 then
+                    vim.cmd("edit " .. vim.fn.fnameescape(results[1]))
+                    vim.api.nvim_win_set_cursor(0,
+                        { utils.getLnum(parsed.row, 0), utils.getCnum(parsed.row, parsed.column, 0) })
+                    vim.cmd("normal! zz")
+                    return
+                end
+
+                local finders = require "telescope.finders"
+                local make_entry = require "telescope.make_entry"
+                local pickers = require "telescope.pickers"
+                local conf = require("telescope.config").values
+
+                opts.on_complete = {
+                    function(picker)
+                        if picker.manager.linked_states.size == 1 then
+                            local actions = require('telescope.actions')
+                            actions.select_default(picker.prompt_bufnr)
+                        end
+                    end
+                }
+                opts.path_display = filenameFirst
+                opts.attach_mappings = get_attach_mapping(parsed.row, parsed.column)
+                opts.entry_maker = opts.entry_maker or make_entry.gen_from_file(opts)
+                pickers
+                    .new(opts, {
+                        prompt_title = "Find File: " .. search_name,
+                        finder = finders.new_table({ results = results, entry_maker = opts.entry_maker }),
+                        previewer = get_custom_previwer(opts, parsed.row),
+                        sorter = conf.file_sorter(opts),
+                    })
+                    :find()
+            end,
+        })
         return true
     end
 end
