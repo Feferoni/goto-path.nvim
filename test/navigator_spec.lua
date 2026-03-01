@@ -32,6 +32,13 @@ describe("navigator", function()
             assert.truthy(bufname:match("Makefile$"))
         end)
 
+        it("more complicated", function()
+            local parsed = parser.parse("../../../../lua/navigator_spec.lua:36:13:")
+            navigator.open_file(parsed, {})
+            local bufname = vim.api.nvim_buf_get_name(0)
+            assert.truthy(bufname:match("init.lua$"))
+        end)
+
         it("uses prefix_paths to find files", function()
             local parsed = parser.parse("testfile.txt")
             navigator.open_file(parsed, { prefix_paths = { "test/" } })
