@@ -109,12 +109,47 @@ local filenameFirst = function(_, path)
     return string.format("%s\t\t%s", tail, parent)
 end
 
-local get_find_command = function()
+-- Build fd flags from the resolved open-file opts.
+--   opts.hidden        -> --hidden
+--   opts.no_ignore     -> --no-ignore
+--   opts.no_ignore_vcs -> --no-ignore-vcs
+--   opts.follow        -> -L
+--   opts.ignore_file   -> --ignore-file <expanded path>
+local build_fd_args = function(exe, opts)
+    opts = opts or {}
+    local cmd = { exe, "--type", "f", "--color", "never" }
+
+    if opts.hidden ~= false then
+        table.insert(cmd, "--hidden")
+    end
+    if opts.no_ignore then
+        table.insert(cmd, "--no-ignore")
+    end
+    if opts.no_ignore_vcs then
+        table.insert(cmd, "--no-ignore-vcs")
+    end
+    if opts.follow then
+        table.insert(cmd, "-L")
+    end
+    if opts.ignore_file then
+        local path = vim.fn.expand(opts.ignore_file)
+        if vim.fn.filereadable(path) == 1 then
+            vim.list_extend(cmd, { "--ignore-file", path })
+        else
+            vim.notify("goto-path: ignore_file not readable: " .. path, vim.log.levels.WARN)
+        end
+    end
+
+    return cmd
+end
+
+local get_find_command = function(opts)
     if vim.fn.executable("fd") == 1 then
-        return { "fd", "--type", "f", "--color", "never", "--hidden", "--no-ignore", "-L" }
+        return build_fd_args("fd", opts)
     elseif vim.fn.executable("fdfind") == 1 then
-        return { "fdfind", "--type", "f", "--color", "never", "--hidden", "--no-ignore", "-L" }
+        return build_fd_args("fdfind", opts)
     elseif vim.fn.executable("find") == 1 and vim.fn.has("win32") == 0 then
+        -- find has no equivalent for fd's ignore flags; opts are ignored here.
         return { "find", ".", "-type", "f", "-name" }
     end
     return nil
@@ -122,7 +157,7 @@ end
 
 M.create_search = function()
     return function(parsed, opts)
-        local find_command = get_find_command()
+        local find_command = get_find_command(opts)
         if not find_command then
             require("telescope.utils").notify("builtin.find_files", {
                 msg = "You need to install either find, fd, or rg",

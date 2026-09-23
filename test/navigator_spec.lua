@@ -33,10 +33,15 @@ describe("navigator", function()
         end)
 
         it("more complicated", function()
-            local parsed = parser.parse("../../../../lua/navigator_spec.lua:36:13:")
+            -- Trailing-colon form "path:line:col:" must parse the same as "path:line:col".
+            -- Use a non-lua file so headless treesitter (no lua parser) doesn't error.
+            local parsed = parser.parse("README.md:3:10:")
             navigator.open_file(parsed, {})
             local bufname = vim.api.nvim_buf_get_name(0)
-            assert.truthy(bufname:match("init.lua$"))
+            assert.truthy(bufname:match("README.md$"))
+            local pos = vim.api.nvim_win_get_cursor(0)
+            assert.are.equal(3, pos[1])
+            assert.are.equal(9, pos[2])
         end)
 
         it("uses prefix_paths to find files", function()
